@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/kind-cli", "crates/kind-syntax"]
+members = ["crates/kind-fmt", "crates/kind-cli", "crates/kind-syntax"]
 
 # [profile.test.package.hvm]
 # opt-level = 3

@@ -13,4 +13,5 @@ name = "kindc"
 path = "src/main.rs"
 
 [dependencies]
+kind-fmt = {path = "../kind-fmt", version = "0.1.3"}
 kind-syntax = {path = "../kind-syntax", version = "0.1.3"}
