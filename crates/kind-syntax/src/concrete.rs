@@ -7,12 +7,9 @@ use num_bigint::BigUint;
 use thin_vec::ThinVec;
 
 use crate::lexemes;
-use crate::lexemes::{
-    AngleBracket, Brace, Bracket, Colon, Either, Equal, Ident, Item, Paren, QualifiedIdent, Token,
-    Tokenized,
-};
+use crate::lexemes::{AngleBracket, Brace, Bracket, Colon, Either, Equal, Ident, Item, Name, Paren, QualifiedIdent, Token, Tokenized};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AttributeStyleKind {
     String(Tokenized<String>),
     Number(Tokenized<u64>),
@@ -30,7 +27,7 @@ pub enum AttributeStyleKind {
 ///
 pub type AttributeStyle = Item<AttributeStyleKind>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AttributeKind {
     pub r#hash: lexemes::Hash,
     pub name: Ident,
@@ -42,14 +39,20 @@ pub struct AttributeKind {
 pub type Attribute = Item<AttributeKind>;
 
 /// A type binding is a type annotation for a variable.
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypeBinding {
     pub name: Ident,
     pub typ: Colon<Box<Expr>>,
 }
 
-pub type ArgumentBinding = Either<AngleBracket<Param>, Paren<Param>>;
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArgumentBinding {
+    Implicit(AngleBracket<Param>),
+    Explicit(Paren<Param>),
+}
 
 /// An argument of a type signature.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Argument {
     pub minus: Option<lexemes::Minus>,
     pub plus: Option<lexemes::Plus>,
@@ -58,14 +61,16 @@ pub struct Argument {
 
 /// A local expression is a reference atom to a local declaration.
 /// * Always starts with a lower case letter.
+#[derive(Debug, Clone, PartialEq)]
 pub struct LocalExpr {
-    pub name: Ident,
+    pub name: Name,
 }
 
 /// A constructor expression is a reference atom to a top level declaration.
 /// * Always starts with an upper case letter.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConstructorExpr {
-    pub name: QualifiedIdent,
+    pub name: Name,
 }
 
 /// A param is a variable or a type binding.
@@ -75,12 +80,14 @@ pub struct ConstructorExpr {
 /// // or
 /// x
 /// ```
+#[derive(Debug, Clone, PartialEq)]
 pub enum Param {
     Named(Paren<TypeBinding>),
     Expr(Box<Expr>),
 }
 
 /// A all node is a dependent function type.
+#[derive(Debug, Clone, PartialEq)]
 pub struct PiExpr {
     pub r#tilde: lexemes::Tilde,
     pub param: Param,
@@ -91,6 +98,7 @@ pub struct PiExpr {
 /// A sigma node is a dependent pair type. It express
 /// the dependency of the type of the second element
 /// of the pair on the first one.
+#[derive(Debug, Clone, PartialEq)]
 pub struct SigmaExpr {
     pub param: Bracket<TypeBinding>,
     pub r#arrow: lexemes::RightArrow,
@@ -98,6 +106,7 @@ pub struct SigmaExpr {
 }
 
 /// A lambda expression (an anonymous function).
+#[derive(Debug, Clone, PartialEq)]
 pub struct LambdaExpr {
     pub r#tilde: Option<lexemes::Tilde>,
     pub param: Param,
@@ -105,34 +114,30 @@ pub struct LambdaExpr {
     pub body: Box<Expr>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Rename(pub Ident, pub Equal<Box<Expr>>);
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum NamedBinding {
     Named(Paren<Rename>),
     Expr(Box<Expr>),
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Binding {
     pub r#tilde: Option<lexemes::Tilde>,
     pub value: NamedBinding,
 }
 
 /// Application of a function to a sequence of arguments.
+#[derive(Debug, Clone, PartialEq)]
 pub struct AppExpr {
     pub fun: Box<Expr>,
     pub arg: ThinVec<Binding>,
 }
 
-/// Let binding expression.
-pub struct LetExpr {
-    pub r#let: lexemes::Let,
-    pub name: Ident,
-    pub value: Equal<Box<Expr>>,
-    pub r#semi: Option<lexemes::Semi>,
-    pub next: Box<Expr>,
-}
-
 /// A type annotation.
+#[derive(Debug, Clone, PartialEq)]
 pub struct AnnExpr {
     pub value: Box<Expr>,
     pub r#colon: lexemes::ColonColon,
@@ -140,6 +145,7 @@ pub struct AnnExpr {
 }
 
 /// A literal is a constant value that can be used in the program.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     U60(Tokenized<u64>),
     F60(Tokenized<f64>),
@@ -150,6 +156,7 @@ pub enum Literal {
 }
 
 // TODO: Rename
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
     Help(Tokenized<String>),
     Type(lexemes::Type),
@@ -158,6 +165,7 @@ pub enum TypeExpr {
     TypeF60(Token),
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum Operation {
     Add,
     Sub,
@@ -179,73 +187,46 @@ pub enum Operation {
 }
 
 /// A binary operation.
+#[derive(Debug, Clone, PartialEq)]
 pub struct BinaryExpr {
     pub left: Box<Expr>,
     pub op: Tokenized<Operation>,
     pub right: Box<Expr>,
 }
 
-/// Monadic binding without a variable name.
-pub struct NextStmt {
-    pub left: Box<Expr>,
-    pub r#semi: Option<lexemes::Semi>,
-    pub next: Box<Stmt>,
-}
-
 /// An ask statement is a monadic binding inside the `do` notation
 /// with a name.
-pub struct AskStmt {
+#[derive(Debug, Clone, PartialEq)]
+pub struct AskExpr {
     pub r#ask: lexemes::Ask,
     pub name: Ident,
     pub value: Equal<Box<Expr>>,
-    pub next: Box<Stmt>,
 }
 
 /// A let binding inside the `do` notation.
-pub struct LetStmt {
+#[derive(Debug, Clone, PartialEq)]
+pub struct LetExpr {
     pub r#let: lexemes::Let,
     pub name: Ident,
     pub value: Equal<Box<Expr>>,
-    pub next: Box<Stmt>,
+    pub r#semi: Option<lexemes::Semi>,
+    pub next: Box<Expr>,
 }
 
 /// The "pure" function of the `A` monad.
-pub struct ReturnStmt {
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReturnExpr {
     pub r#return: lexemes::Return,
     pub value: Box<Expr>,
 }
 
-/// An expression without the "pure" function.
-pub struct ReturnExprStmt {
-    pub value: Box<Expr>,
+#[derive(Debug, Clone, PartialEq)]
+pub struct Stmt {
+    pub value: Expr,
+    pub r#semi: Option<lexemes::Semi>,
 }
 
-/// An statement is a "single line" of code inside the
-/// do notation. It can be either an expression, a let
-/// binding, a return statement or a return expression.
-/// i.e.
-///
-/// ```kind
-/// do A {
-///    ask a = 2      // Monadic binding of the `A` monad
-///    let a = 2      // A simple let expression
-///    return a + 2   // The "pure" functoin of the `A` monad
-/// }
-/// ```
-pub enum StmtKind {
-    /// Monadic binding without a variable name.
-    Next(NextStmt),
-    /// Monadic binding with a variable name.
-    Ask(AskStmt),
-    /// A simple let expression.
-    Let(LetStmt),
-    /// The "pure" function of the `A` monad.
-    Return(ReturnStmt),
-    /// An expression without the "pure" function.
-    ReturnExpr(ReturnExprStmt),
-}
-
-pub type Stmt = Item<StmtKind>;
+pub type Block = Brace<ThinVec<Stmt>>;
 
 /// A DoNode is similar to the haskell do notation.
 /// i.e.
@@ -257,13 +238,15 @@ pub type Stmt = Item<StmtKind>;
 ///     return a + b;
 /// }
 /// ```
+#[derive(Debug, Clone, PartialEq)]
 pub struct DoNode {
     pub r#do: lexemes::Do,
     pub typ: Option<Ident>,
-    pub value: Brace<Stmt>,
+    pub value: Block,
 }
 
 /// Conditional expression.
+#[derive(Debug, Clone, PartialEq)]
 pub struct IfExpr {
     pub cond: Tokenized<Box<Expr>>,
     pub then: Brace<Box<Expr>>,
@@ -275,6 +258,7 @@ pub struct IfExpr {
 /// ```kind
 /// $ a b
 /// ```
+#[derive(Debug, Clone, PartialEq)]
 pub struct PairNode<T> {
     pub r#sign: lexemes::Sign,
     pub left: Box<T>,
@@ -287,6 +271,7 @@ pub struct PairNode<T> {
 /// ```kind
 /// specialize a into #0 in a
 /// ```
+#[derive(Debug, Clone, PartialEq)]
 pub struct SubstExpr {
     pub r#specialize: lexemes::Specialize,
     pub name: Ident,
@@ -298,11 +283,13 @@ pub struct SubstExpr {
 }
 
 /// A List expression represents a list of values.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ListNode<T> {
     pub bracket: Bracket<ThinVec<T>>,
 }
 
 /// A Case is a single case in a match node.
+#[derive(Debug, Clone, PartialEq)]
 pub struct CaseNode {
     pub name: Ident,
     pub r#arrow: lexemes::FatArrow,
@@ -318,6 +305,7 @@ pub struct CaseNode {
 ///     cons => a.head
 /// }
 /// ```
+#[derive(Debug, Clone, PartialEq)]
 pub struct MatchExpr {
     pub r#match: lexemes::Match,
     pub typ: Option<Ident>,
@@ -336,6 +324,7 @@ pub struct MatchExpr {
 /// a.head
 /// ```
 ///
+#[derive(Debug, Clone, PartialEq)]
 pub struct OpenExpr {
     pub r#open: lexemes::Open,
     pub typ: Ident,
@@ -350,6 +339,7 @@ pub struct OpenExpr {
 
 /// A node that express the operation after accessing fields
 /// of a record.
+#[derive(Debug, Clone, PartialEq)]
 pub enum AccessOperation {
     Set(Token, Box<Expr>),
     Mut(Token, Box<Expr>),
@@ -357,6 +347,7 @@ pub enum AccessOperation {
 }
 
 /// A node for accessing and modifying fields of a record.
+#[derive(Debug, Clone, PartialEq)]
 pub struct AccessExpr {
     pub typ: Box<Expr>,
     pub expr: Box<Expr>,
@@ -365,6 +356,7 @@ pub struct AccessExpr {
 }
 
 /// An expression is a piece of code that can be evaluated.
+#[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
     Local(Box<LocalExpr>),
     Pi(Box<PiExpr>),
@@ -392,14 +384,16 @@ pub enum ExprKind {
 pub type Expr = Item<ExprKind>;
 
 /// A constructor node is the name of a global function.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConstructorPat {
     pub name: QualifiedIdent,
     pub args: ThinVec<Argument>,
 }
 
 /// A pattern is part of a rule. It is a structure that matches an expression.
+#[derive(Debug, Clone, PartialEq)]
 pub enum PatKind {
-    Ident(Ident),
+    Name(Name),
     Pair(PairNode<Pat>),
     Constructor(ConstructorPat),
     List(ListNode<Pat>),
@@ -414,10 +408,12 @@ pub type Pat = Item<PatKind>;
 /// ```kind
 /// Add (n: Nat) (m: Nat) : Nat
 /// ```
+#[derive(Debug, Clone, PartialEq)]
 pub struct Signature {
-    pub name: Ident,
+    pub name: Name,
     pub arguments: ThinVec<Argument>,
-    pub colon: Colon<ThinVec<Expr>>,
+    pub return_type: Option<Colon<Expr>>,
+    pub value: Option<Block>,
 }
 
 /// A rule is a top-level structure that have pattern match rules. It does
@@ -426,6 +422,7 @@ pub struct Signature {
 /// ```kind
 /// Add Nat.zero m = m
 /// ```
+#[derive(Debug, Clone, PartialEq)]
 pub struct Rule {
     pub name: Ident,
     pub patterns: ThinVec<Pat>,
@@ -440,6 +437,7 @@ pub struct Rule {
 ///    n + m
 /// }
 /// ```
+#[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub name: Ident,
     pub arguments: ThinVec<Argument>,
@@ -454,6 +452,7 @@ pub struct Function {
 /// ```kind
 /// @eval (+ 1 1)
 /// ```
+#[derive(Debug, Clone, PartialEq)]
 pub struct Command {
     pub at: Token,
     pub name: Ident,
@@ -466,6 +465,7 @@ pub struct Command {
 /// ```kind
 ///    some (value: a) : Maybe a
 /// ```
+#[derive(Debug, Clone, PartialEq)]
 pub struct Constructor {
     pub name: Ident,
     pub arguments: ThinVec<Argument>,
@@ -474,6 +474,7 @@ pub struct Constructor {
 
 /// A type definition is a top-level structure that defines a type family
 /// with multiple constructors that named fields, indices and parameters.
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypeDef {
     pub name: QualifiedIdent,
     pub constructors: ThinVec<Constructor>,
@@ -483,6 +484,7 @@ pub struct TypeDef {
 
 /// A record definition is a top-level structure that defines a type with
 /// a single constructor that has named fields with named fields.
+#[derive(Debug, Clone, PartialEq)]
 pub struct RecordDef {
     pub name: QualifiedIdent,
     pub fields: ThinVec<TypeBinding>,
@@ -492,6 +494,7 @@ pub struct RecordDef {
 
 /// A top-level item is a item that is on the outermost level of a
 /// program. It includes functions, commands, signatures and rules.
+#[derive(Debug, Clone, PartialEq)]
 pub enum TopLevelKind {
     Function(Function),
     Commmand(Command),
@@ -501,6 +504,7 @@ pub enum TopLevelKind {
     Rule(Rule),
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Attributed<T> {
     pub attributes: ThinVec<Attribute>,
     pub data: T,
@@ -511,6 +515,7 @@ pub type TopLevel = Attributed<Item<TopLevelKind>>;
 
 /// A collection of top-level items. This is the root of the CST and
 /// is the result of parsing a module.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Module {
     pub shebang: Option<String>,
     pub items: ThinVec<TopLevel>,
