@@ -41,22 +41,22 @@ pub type Attribute = Item<AttributeKind>;
 /// A type binding is a type annotation for a variable.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeBinding {
-    pub name: Ident,
-    pub typ: Colon<Box<Expr>>,
+    pub name: Name,
+    pub binding_type: Option<Colon<Box<Expr>>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ArgumentBinding {
-    Implicit(AngleBracket<Param>),
-    Explicit(Paren<Param>),
+pub enum ParameterBinding {
+    Implicit(AngleBracket<TypeBinding>),
+    Explicit(Paren<TypeBinding>),
 }
 
 /// An argument of a type signature.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Argument {
-    pub minus: Option<lexemes::Minus>,
-    pub plus: Option<lexemes::Plus>,
-    pub binding: ArgumentBinding,
+pub enum SignatureParameter {
+    Exclude(ParameterBinding),
+    Include(ParameterBinding),
+    Both(ParameterBinding),
 }
 
 /// A local expression is a reference atom to a local declaration.
@@ -79,9 +79,8 @@ pub struct ConstructorExpr {
 /// (x : Int)
 /// // or
 /// x
-/// ```
 #[derive(Debug, Clone, PartialEq)]
-pub enum Param {
+pub enum PiParameter {
     Named(Paren<TypeBinding>),
     Expr(Box<Expr>),
 }
@@ -90,7 +89,7 @@ pub enum Param {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PiExpr {
     pub r#tilde: lexemes::Tilde,
-    pub param: Param,
+    pub param: PiParameter,
     pub r#arrow: lexemes::RightArrow,
     pub body: Box<Expr>,
 }
@@ -109,7 +108,7 @@ pub struct SigmaExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LambdaExpr {
     pub r#tilde: Option<lexemes::Tilde>,
-    pub param: Param,
+    pub param: PiParameter,
     pub r#arrow: lexemes::FatArrow,
     pub body: Box<Expr>,
 }
@@ -309,7 +308,7 @@ pub struct CaseNode {
 pub struct MatchExpr {
     pub r#match: lexemes::Match,
     pub typ: Option<Ident>,
-    pub with: Option<(lexemes::With, ThinVec<Param>)>,
+    pub with: Option<(lexemes::With, ThinVec<PiParameter>)>,
     pub scrutinee: Box<Expr>,
     pub cases: Brace<ThinVec<CaseNode>>,
     pub motive: Option<Colon<Box<Expr>>>,
@@ -387,7 +386,7 @@ pub type Expr = Item<ExprKind>;
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstructorPat {
     pub name: QualifiedIdent,
-    pub args: ThinVec<Argument>,
+    pub args: ThinVec<SignatureParameter>,
 }
 
 /// A pattern is part of a rule. It is a structure that matches an expression.
@@ -411,7 +410,7 @@ pub type Pat = Item<PatKind>;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Signature {
     pub name: Name,
-    pub arguments: ThinVec<Argument>,
+    pub parameters: ThinVec<SignatureParameter>,
     pub return_type: Option<Colon<Expr>>,
     pub value: Option<Block>,
 }
@@ -440,7 +439,7 @@ pub struct Rule {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub name: Ident,
-    pub arguments: ThinVec<Argument>,
+    pub arguments: ThinVec<SignatureParameter>,
     pub return_typ: Option<Colon<Expr>>,
     pub value: Brace<Expr>,
 }
@@ -468,7 +467,7 @@ pub struct Command {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Constructor {
     pub name: Ident,
-    pub arguments: ThinVec<Argument>,
+    pub arguments: ThinVec<SignatureParameter>,
     pub typ: Option<Colon<ThinVec<Expr>>>,
 }
 
@@ -478,8 +477,8 @@ pub struct Constructor {
 pub struct TypeDef {
     pub name: QualifiedIdent,
     pub constructors: ThinVec<Constructor>,
-    pub params: ThinVec<Argument>,
-    pub indices: ThinVec<Argument>,
+    pub params: ThinVec<SignatureParameter>,
+    pub indices: ThinVec<SignatureParameter>,
 }
 
 /// A record definition is a top-level structure that defines a type with
@@ -488,8 +487,8 @@ pub struct TypeDef {
 pub struct RecordDef {
     pub name: QualifiedIdent,
     pub fields: ThinVec<TypeBinding>,
-    pub params: ThinVec<Argument>,
-    pub indices: ThinVec<Argument>,
+    pub params: ThinVec<SignatureParameter>,
+    pub indices: ThinVec<SignatureParameter>,
 }
 
 /// A top-level item is a item that is on the outermost level of a

@@ -1,17 +1,31 @@
-use std::path::PathBuf;
+use thin_vec::ThinVec;
+use tree_sitter::{Node, Parser, Tree, TreeCursor};
 
-use thin_vec::{thin_vec, ThinVec};
-use tree_sitter::{Parser, Tree, TreeCursor};
+use kind_syntax::concrete::Module;
+use kind_syntax::lexemes::Token;
 
-use kind_syntax::concrete::{Block, ConstructorExpr, Expr, ExprKind, LocalExpr, Module, Pat, PatKind, Rule, Signature, Stmt, TopLevel, TopLevelKind};
-use kind_syntax::lexemes::{Brace, Colon, Equal, Ident, Item, Name, Span, Token, Tokenized};
+mod expr;
+mod name;
+mod parameter;
+mod pattern;
+mod primary;
+mod statements;
+mod top_level;
 
 #[derive(Debug)]
 pub enum FmtError {
     IoError(std::io::Error),
+    Utf8Error(std::str::Utf8Error),
     TreeSitterLanguageError(tree_sitter::LanguageError),
     TreeSitterQueryError(tree_sitter::QueryError),
     UnknownParseError,
+}
+
+#[derive(Clone, Copy)]
+pub struct FmtContext<'a> {
+    pub file: &'a str,
+    pub tree: &'a Tree,
+    pub cursor: *mut TreeCursor<'a>,
 }
 
 pub type Result<T> = std::result::Result<T, FmtError>;
@@ -21,7 +35,7 @@ pub fn run_fmt(string: String) -> Result<Module> {
     parser
         .set_language(tree_sitter_kind::language())
         .map_err(FmtError::TreeSitterLanguageError)?;
-    let tree = parser
+    let mut tree = parser
         .parse(string.as_bytes(), None)
         .ok_or(FmtError::UnknownParseError)?;
 
@@ -29,10 +43,16 @@ pub fn run_fmt(string: String) -> Result<Module> {
 
     let mut cursor = tree.root_node().walk();
 
-    let declarations = tree.root_node().children(&mut cursor)
-        .map(|node| {
-            specialize_top_level(&string, &tree, &mut node.walk())
-        })
+    let context = FmtContext {
+        file: &string,
+        tree: &tree,
+        cursor: &mut cursor,
+    };
+
+    let declarations = tree
+        .root_node()
+        .children(&mut cursor)
+        .map(|node| context.cursor(node).top_level())
         .collect::<Result<ThinVec<_>>>()?;
 
     Ok(Module {
@@ -42,132 +62,91 @@ pub fn run_fmt(string: String) -> Result<Module> {
     })
 }
 
-fn specialize_top_level(file: &String, tree: &Tree, cursor: &mut TreeCursor) -> Result<TopLevel> {
-    let node = cursor.node();
-    match node.kind() {
-        "val_declaration" => {
-            let name = node.child_by_field_name("name").unwrap();
-            let return_type = node.child_by_field_name("return_type");
-            let value = node.child_by_field_name("value");
+impl<'a> FmtContext<'a> {
+    pub fn node(&self) -> Node<'a> {
+        unsafe { (*self.cursor).node() }
+    }
 
-            Ok(TopLevel {
-                data: Item::new(
-                    Span::default(),
-                    TopLevelKind::Signature(Signature {
-                        name: specialize_name(file, tree, &mut name.walk())?,
-                        arguments: thin_vec![],
-                        return_type: return_type.map_or(Ok(None), |node| {
-                            let expr = specialize_expr(file, tree, &mut node.walk())?;
-                            Ok(Some(Colon(Token::default(), expr)))
-                        })?,
-                        value: value.map_or(Ok(None), |node| {
-                            let block = specialize_statements(file, tree, &mut node.walk())?;
-                            Ok(Some(block))
-                        })?,
-                    }),
-                ),
-                attributes: thin_vec![],
+    pub fn get_current_cursor(&self) -> TreeCursor<'a> {
+        unsafe { (*self.cursor).clone() }
+    }
+
+    pub fn kind(&self) -> &'static str {
+        self.node().kind()
+    }
+
+    pub fn first(&self) -> Option<Node<'a>> {
+        self.node().child(0)
+    }
+
+    pub fn at(&self, at: usize) -> Option<Node<'a>> {
+        self.node().child(at)
+    }
+
+    pub fn named_at(&self, at: usize) -> Option<Node<'a>> {
+        self.node().named_child(at)
+    }
+
+    pub fn property(&self, name: &str) -> Option<Node<'a>> {
+        self.node().child_by_field_name(name)
+    }
+
+    pub fn properties(&self, name: &'static str) -> impl Iterator<Item = Node<'a>> {
+        unsafe {
+            self.node().children_by_field_name(name, self.cursor.as_mut().unwrap())
+        }
+    }
+
+    pub fn find<F, T>(&self, name: &str, mut f: F) -> Result<Option<T>>
+    where
+        F: FnMut(Node) -> Result<T>,
+    {
+        self
+            .node()
+            .child_by_field_name(name)
+            .map_or(Ok(None), |node| {
+                let value = f(node)?;
+                Ok(Some(value))
             })
-        }
-        _ => todo!(),
     }
-}
 
-fn specialize_pattern(file: &String, tree: &Tree, cursor: &mut TreeCursor) -> Result<Pat> {
-    let node = cursor.node();
-    match node.kind() {
-        "identifier" => {
-            specialize_name(file, tree, cursor)
-                .map(|name| Pat::new(
-                    Span::default(),
-                    PatKind::Name(name),
-                ))
+    pub fn named_children(&self) -> impl Iterator<Item = Node<'a>> + '_ {
+        unsafe {
+            self.node().named_children(self.cursor.as_mut().unwrap())
         }
-        "constructor_identifier" => {
-            specialize_name(file, tree, cursor)
-                .map(|name| Pat::new(
-                    Span::default(),
-                    PatKind::Name(name),
-                ))
-        }
-        kind => todo!("{}", kind),
     }
-}
 
-fn specialize_expr(file: &String, tree: &Tree, cursor: &mut TreeCursor) -> Result<Expr> {
-    let node = cursor.node();
-    match node.kind() {
-        "call" => {
-            let callee = node
-                .child_by_field_name("callee")
-                .unwrap();
+    pub fn children(&self) -> impl Iterator<Item = Node<'a>> + '_ {
+        let mut cursor = self.get_current_cursor();
 
-            specialize_primary(file, tree, &mut callee.walk())
-        },
-        kind => todo!("{}", kind),
+        cursor.reset(self.node());
+        cursor.goto_first_child();
+        (0..self.node().child_count()).map(move |_| {
+            let result = cursor.node();
+            cursor.goto_next_sibling();
+            result
+        })
     }
-}
 
-fn specialize_name(file: &String, _tree: &Tree, cursor: &mut TreeCursor) -> Result<Name> {
-    let node = cursor.node();
-    match node.kind() {
-        "identifier" => {
-            let name = node.utf8_text(file.as_bytes()).unwrap().to_string();
-
-            Ok(Name::Ident(Ident(Item::new(
-                Span::default(),
-                Tokenized(Token::default(), name),
-            ))))
-        }
-        kind => todo!("{}", kind),
+    pub fn text(&self) -> Result<&'a str> {
+        self.node()
+            .utf8_text(self.file.as_bytes())
+            .map_err(FmtError::Utf8Error)
     }
-}
 
-fn specialize_statements(file: &String, tree: &Tree, cursor: &mut TreeCursor) -> Result<Block> {
-    let node = cursor.node();
-    match node.kind() {
-        "statements" => {
-            let statements = node.named_children(cursor)
-                .map(|node| {
-                    specialize_expr(file, tree, &mut node.walk())
-                })
-                .collect::<Result<ThinVec<_>>>()?;
-
-            Ok(Brace(
-                Token::default(),
-                statements.iter().map(|expr| Stmt {
-                    value: expr.clone(),
-                    semi: None,
-                }).collect(),
-                Token::default(),
-            ))
-        }
-        kind => todo!("{}", kind),
+    pub fn text_of(&self, node: Node<'_>) -> Result<&'a str> {
+        node.utf8_text(self.file.as_bytes())
+            .map_err(FmtError::Utf8Error)
     }
-}
 
-fn specialize_primary(file: &String, tree: &Tree, cursor: &mut TreeCursor) -> Result<Expr> {
-    let node = cursor.node();
-    match node.kind() {
-        "constructor_identifier" => {
-            specialize_name(file, tree, cursor)
-                .map(|name| Expr::new(
-                    Span::default(),
-                    ExprKind::Constructor(Box::new(ConstructorExpr {
-                        name,
-                    })),
-                ))
+    pub fn cursor<'b>(&'b self, node: Node<'b>) -> FmtContext<'b> {
+        // fix this leak
+        let cursor = Box::leak(Box::new(node.walk()));
+        FmtContext {
+            file: self.file,
+            tree: self.tree,
+            cursor,
         }
-        "identifier" => {
-            specialize_name(file, tree, cursor)
-                .map(|name| Expr::new(
-                    Span::default(),
-                    ExprKind::Local(Box::new(LocalExpr {
-                        name,
-                    })),
-                ))
-        }
-        _ => todo!(),
     }
 }
 
@@ -177,7 +156,7 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let expr = run_fmt("bao:pao{a}".into()).unwrap();
+        let expr = run_fmt("Ata (name: U60) : Type { Something }".into()).unwrap();
         println!("{:#?}", expr);
     }
 }
